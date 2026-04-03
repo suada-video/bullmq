@@ -24,6 +24,7 @@ local rcall = redis.call
 -- Includes
 --- @include "includes/addJobInTargetList"
 --- @include "includes/batches"
+--- @include "includes/moveChildFromDependenciesIfNeeded"
 --- @include "includes/moveJobToWait"
 --- @include "includes/trimEvents"
 
@@ -87,6 +88,24 @@ if (#stalling > 0) then
                     if stalledCount > maxStalledJobCount and not isRepeatableJob then
                         local failedReason = "job stalled more than allowable limit"
                         rcall("HSET", jobKey, "defa", failedReason)
+
+                        -- When a stalled job exceeds the max stall count, propagate the
+                        -- failure up the parent chain if failParentOnFailure (fpof),
+                        -- continueParentOnFailure (cpof), ignoreDependencyOnFailure (idof),
+                        -- or removeDependencyOnFailure (rdof) is set.
+                        --
+                        -- Without this, the parent stays stuck in waiting-children forever
+                        -- because no worker picks up the stalled child to trigger the normal
+                        -- moveToFinished failure path.
+                        --
+                        -- The "parent" hash field contains JSON: {queueKey, id, fpof, cpof, ...}
+                        -- This is the same field moveToFinished passes to
+                        -- moveChildFromDependenciesIfNeeded.
+                        -- See: https://github.com/taskforcesh/bullmq/issues/2464
+                        local rawParentData = rcall("HGET", jobKey, "parent")
+                        if rawParentData then
+                            moveChildFromDependenciesIfNeeded(rawParentData, jobKey, failedReason, timestamp)
+                        end
                     end
                     
                     moveJobToWait(metaKey, activeKey, waitKey, pausedKey, markerKey, eventStreamKey, jobId,
