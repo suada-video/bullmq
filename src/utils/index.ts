@@ -211,6 +211,8 @@ export function isNotConnectionError(error: Error): boolean {
   return (
     errorMessage !== CONNECTION_CLOSED_ERROR_MSG &&
     !errorMessage.includes('ECONNREFUSED') &&
+    !errorMessage.includes("Stream isn't writeable") &&
+    !errorMessage.includes('Command aborted') &&
     code !== 'ECONNREFUSED'
   );
 }
